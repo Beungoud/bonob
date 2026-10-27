@@ -58,7 +58,6 @@ import {
   playlistToPlaylistSummary,
 } from "../src/music_library";
 import { APITokens } from "../src/api_tokens";
-import dayjs from "dayjs";
 import { BonobUrl } from "../src/url_builder";
 import { iconForGenre } from "../src/icon";
 import { formatCoverArt } from "../src/art";
@@ -931,25 +930,48 @@ describe("wsdl api", () => {
         });
 
         describe("getLastUpdate", () => {
-          it("should return a result with some timestamps", async () => {
-            const now = dayjs();
-            clock.time = now;
+          let ws: Client;
 
-            const ws = await createClientAsync(`${service.uri}?wsdl`, {
+          beforeEach(async () => {
+            ws = await createClientAsync(`${service.uri}?wsdl`, {
               endpoint: service.uri,
               httpClient: supersoap(server),
             });
+          });
 
-            const result = await ws.getLastUpdateAsync({});
+          const lastUpdate = () =>
+            ws.getLastUpdateAsync({}).then((it: any) => it[0].getLastUpdateResult);
 
-            expect(result[0]).toEqual({
-              getLastUpdateResult: {
-                autoRefreshEnabled: true,
-                favorites: `${now.unix()}`,
-                catalog: `${now.unix()}`,
-                pollInterval: 60,
-              },
+          it("should return the poll settings and some tokens", async () => {
+            const result = await lastUpdate();
+
+            expect(result).toEqual({
+              autoRefreshEnabled: true,
+              favorites: expect.any(String),
+              catalog: expect.any(String),
+              pollInterval: 60,
             });
+          });
+
+          it("should not change the tokens between calls, even as time passes", async () => {
+            const before = await lastUpdate();
+            clock.time = clock.now().add(1, "hour");
+            const after = await lastUpdate();
+
+            expect(after).toEqual(before);
+          });
+
+          it("should change only the favorites once a track has been rated", async () => {
+            const before = await lastUpdate();
+
+            setupAuthenticatedRequest(ws);
+            musicLibrary.rate.mockResolvedValue(true);
+            await ws.rateItemAsync({ id: "track:123", rating: 31 });
+
+            const after = await lastUpdate();
+
+            expect(after.catalog).toEqual(before.catalog);
+            expect(after.favorites).not.toEqual(before.favorites);
           });
         });
 

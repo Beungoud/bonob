@@ -540,6 +540,20 @@ function bindSmapiSoapServiceToExpress(
 ) {
   const sonosSoap = new SonosSoap(bonobUrl, linkCodes, smapiAuthTokens, clock);
 
+  // Sonos apps throw away their cached browse data whenever these tokens change
+  // (see getLastUpdate), so they must only change when the content does: the
+  // catalog once per bonob start, the favorites when playlists or ratings are
+  // changed through Sonos. Changing them on every call leaves the new Sonos app
+  // showing "content not available" until a search forces a reload.
+  // eslint-disable-next-line functional/no-let
+  let catalogVersion: string | undefined = undefined;
+  // eslint-disable-next-line functional/no-let
+  let favoritesVersion = 0;
+  const favoritesChanged = <T>(it: T): T => {
+    favoritesVersion++;
+    return it;
+  };
+
   const auth = (loginToken?: string): E.Either<ToSmapiFault, Auth> => {
     const tokenFrom = E.fromNullable(new MissingLoginTokenError());
     return pipe(
@@ -632,14 +646,17 @@ function bindSmapiSoapServiceToExpress(
             sonosSoap.reportAccountAction({ type }),
           getDeviceAuthToken: ({ linkCode }: { linkCode: string }) =>
             sonosSoap.getDeviceAuthToken({ linkCode }),
-          getLastUpdate: () => ({
-            getLastUpdateResult: {
-              catalog: clock.now().unix(),
-              favorites: clock.now().unix(),
-              pollInterval: 60,
-              autoRefreshEnabled: true,
-            },
-          }),
+          getLastUpdate: () => {
+            catalogVersion = catalogVersion ?? `${clock.now().unix()}`;
+            return {
+              getLastUpdateResult: {
+                catalog: catalogVersion,
+                favorites: `${catalogVersion}.${favoritesVersion}`,
+                pollInterval: 60,
+                autoRefreshEnabled: true,
+              },
+            };
+          },
           refreshAuthToken: async (
             _, 
             _2, 
@@ -1239,6 +1256,7 @@ function bindSmapiSoapServiceToExpress(
                 }
                 return playlist;
               })
+              .then(favoritesChanged)
               .then((it) => ({
                 createContainerResult: {
                   id: `playlist:${it.id}`,
@@ -1253,6 +1271,7 @@ function bindSmapiSoapServiceToExpress(
           ) =>
             login(findLoginToken(soapyHeaders, headers))
               .then(({ musicLibrary }) => musicLibrary.deletePlaylist(id))
+              .then(favoritesChanged)
               .then((_) => ({ deleteContainerResult: {} })),
           // todo: index and updateId are ignored - we always append, and never check/return
           // a real updateId, so we can't detect a stale container the way Sonos expects.
@@ -1267,6 +1286,7 @@ function bindSmapiSoapServiceToExpress(
               .then(({ musicLibrary, typeId }) =>
                 musicLibrary.addToPlaylist(parentId.split(":")[1]!, typeId)
               )
+              .then(favoritesChanged)
               .then((_) => ({ addToContainerResult: { updateId: "" } })),
           removeFromContainer: async (
             { id, indices }: { id: string; indices: string },
@@ -1291,6 +1311,7 @@ function bindSmapiSoapServiceToExpress(
                   musicLibrary.removeFromPlaylist(typeId, indices);
                 }
               })
+              .then(favoritesChanged)
               .then((_) => ({ removeFromContainerResult: { updateId: "" } })),
 
           rateItem: async (
@@ -1304,6 +1325,7 @@ function bindSmapiSoapServiceToExpress(
               .then(({ musicLibrary, typeId }) =>
                 musicLibrary.rate(typeId, ratingFromInt(Math.abs(rating)))
               )
+              .then(favoritesChanged)
               .then((_) => ({ rateItemResult: { shouldSkip: false } })),
 
           setPlayedSeconds: async (
