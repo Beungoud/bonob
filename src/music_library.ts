@@ -210,6 +210,19 @@ export type Playlist = PlaylistSummary & {
   readonly entries: readonly Track[]
 }
 
+export type DirectorySummary = {
+  readonly id: string;
+  readonly name: string;
+  readonly coverArt: Art | undefined;
+};
+
+// The contents of a folder in the music library, as laid out on disk
+// (when the server supports it, otherwise however the server simulates it).
+export type Directory = {
+  readonly directories: readonly DirectorySummary[];
+  readonly tracks: readonly Track[];
+};
+
 export const range = (size: number) => [...Array(size).keys()];
 
 // eslint-disable-next-line functional/prefer-readonly-type
@@ -257,4 +270,6 @@ export interface MusicLibrary {
   topSongs(artistId: string): Promise<readonly TrackSummary[]>;
   radioStation(id: string): Promise<RadioStation>
   radioStations(): Promise<readonly RadioStation[]>
+  rootDirectory(): Promise<Directory>
+  directory(id: string): Promise<Directory>
 }

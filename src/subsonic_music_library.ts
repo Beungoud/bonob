@@ -17,6 +17,7 @@ import {
   AuthSuccess,
   Paging,
   slice2Result,
+  Directory,
 } from "./music_library";
 import {
   Subsonic,
@@ -38,6 +39,9 @@ import {
   OpenSubsonicSong,
   coverArtToArt,
   maybeAsGenre,
+  SubsonicDirectoryChild,
+  isDirectory,
+  isVideo,
 } from "./subsonic";
 
 const starredSongIds = (starred: { readonly song?: readonly { readonly id: string }[] }) =>
@@ -556,6 +560,58 @@ export class SubsonicMusicLibrary implements MusicLibrary {
 
   readonly radioStation = async (id: string) =>
     this.radioStations().then((it) => it.find((station) => station.id === id)!);
+
+  readonly rootDirectory = async (): Promise<Directory> =>
+    Promise.all([
+      this.subsonic.getIndexes(this.credentials),
+      this.subsonic.getStarred(this.credentials),
+    ]).then(([indexes, starred]) => ({
+      directories: (indexes.index || []).flatMap((index) =>
+        (index.artist || []).map((it) => ({
+          id: it.id,
+          name: it.name,
+          coverArt: coverArtToArt(it.coverArt),
+        }))
+      ),
+      tracks: this.directoryTracks(indexes.child || [], starredSongIds(starred)),
+    }));
+
+  readonly directory = async (id: string): Promise<Directory> =>
+    Promise.all([
+      this.subsonic.getMusicDirectory(this.credentials, id),
+      this.subsonic.getStarred(this.credentials),
+    ]).then(([directory, starred]) => {
+      const children = directory.child || [];
+      return {
+        directories: children.filter(isDirectory).map((it) => ({
+          id: it.id,
+          name: it.title,
+          coverArt: coverArtToArt(it.coverArt),
+        })),
+        tracks: this.directoryTracks(children, starredSongIds(starred), directory),
+      };
+    });
+
+  private readonly directoryTracks = (
+    children: readonly SubsonicDirectoryChild[],
+    starredIds: ReadonlySet<string>,
+    parent: { readonly id: string; readonly name: string } | undefined = undefined
+  ) =>
+    children
+      .filter((it) => !isDirectory(it) && !isVideo(it))
+      .map((song) =>
+        asTrack(
+          {
+            ...asAlbumSummaryFromSong(song),
+            // files in a folder are not necessarily tagged with an album
+            id: song.albumId ?? song.parent ?? parent?.id ?? "",
+            name: song.album ?? parent?.name ?? "",
+          },
+          song,
+          this.customPlayers,
+          starredIds
+        )
+      );
 
   readonly years = async () => this.albums({
     type: "alphabeticalByArtist",

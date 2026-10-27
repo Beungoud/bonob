@@ -23,6 +23,9 @@ import {
   slice2,
   Sortable,
   Track,
+  Directory,
+  DirectorySummary,
+  MusicLibrary,
   PlaylistSummary
 } from "./music_library";
 import { APITokens } from "./api_tokens";
@@ -335,6 +338,40 @@ const playlist = (bonobUrl: BonobUrl, authToken: string, playlist: PlaylistSumma
     userContent: true,
   },
 });
+
+export const folder = (bonobUrl: BonobUrl, authToken: string, directory: DirectorySummary) => ({
+  id: `folder:${directory.id}`,
+  itemType: "container",
+  title: directory.name,
+  canPlay: true,
+  albumArtURI: directory.coverArt
+    ? coverArtURI(bonobUrl, authToken, directory)
+    : iconArtURI(bonobUrl, "folder"),
+});
+
+// When Sonos plays a folder it asks for all of its tracks at once (recursive=true),
+// so walk the sub folders, depth first, stopping after `limit` tracks.
+export const MAX_FOLDER_TRACKS = 500;
+
+export const tracksWithin = (
+  musicLibrary: Pick<MusicLibrary, "directory">,
+  directory: Directory,
+  limit: number = MAX_FOLDER_TRACKS
+): Promise<readonly Track[]> =>
+  directory.directories
+    .reduce(
+      (found, sub) =>
+        found.then((tracks) =>
+          tracks.length >= limit
+            ? tracks
+            : musicLibrary
+                .directory(sub.id)
+                .then((it) => tracksWithin(musicLibrary, it, limit - tracks.length))
+                .then((more) => [...tracks, ...more])
+        ),
+      Promise.resolve<readonly Track[]>(directory.tracks.slice(0, limit))
+    )
+    .then((it) => it.slice(0, limit));
 
 export const coverArtURI = (
   bonobUrl: BonobUrl,
@@ -804,8 +841,8 @@ function bindSmapiSoapServiceToExpress(
               id,
               index,
               count,
-            }: // recursive,
-            { id: string; index: number; count: number; recursive: boolean },
+              recursive,
+            }: { id: string; index: number; count: number; recursive?: boolean | string },
             _,
             soapyHeaders: SoapyHeaders,
             { headers }: Pick<Request, "headers">
@@ -831,6 +868,36 @@ function bindSmapiSoapServiceToExpress(
                     });
                   });
 
+                const directoryContents = (directory: Directory) => {
+                  if (recursive === true || recursive === "true") {
+                    return tracksWithin(musicLibrary, directory)
+                      .then(slice2(paging))
+                      .then(([page, total]) =>
+                        getMetadataResult({
+                          mediaMetadata: page.map((it) => track(bonobUrl, apiKey, it)),
+                          index: paging._index,
+                          total,
+                        })
+                      );
+                  }
+                  // folders first, then the tracks, paged as a single list
+                  const [page, total] = slice2<
+                    | { readonly mediaCollection: ReturnType<typeof folder> }
+                    | { readonly mediaMetadata: ReturnType<typeof track> }
+                  >(paging)([
+                    ...directory.directories.map((it) => ({ mediaCollection: folder(bonobUrl, apiKey, it) })),
+                    ...directory.tracks.map((it) => ({ mediaMetadata: track(bonobUrl, apiKey, it) })),
+                  ]);
+                  const mediaCollection = page.flatMap((it) => ("mediaCollection" in it ? [it.mediaCollection] : []));
+                  const mediaMetadata = page.flatMap((it) => ("mediaMetadata" in it ? [it.mediaMetadata] : []));
+                  return getMetadataResult({
+                    ...(mediaCollection.length > 0 ? { mediaCollection } : {}),
+                    ...(mediaMetadata.length > 0 ? { mediaMetadata } : {}),
+                    index: paging._index,
+                    total,
+                  });
+                };
+
                 switch (type) {
                   case "root":
                     return getMetadataResult({
@@ -848,6 +915,12 @@ function bindSmapiSoapServiceToExpress(
                           title: lang("albums"),
                           canScroll: true,
                           albumArtURI: iconArtURI(bonobUrl, "albums"),
+                        },
+                        {
+                          id: "folders",
+                          itemType: "container",
+                          title: lang("folders"),
+                          albumArtURI: iconArtURI(bonobUrl, "folder"),
                         },
                         {
                           id: "randomAlbums",
@@ -1104,6 +1177,10 @@ function bindSmapiSoapServiceToExpress(
                           total,
                         });
                       });
+                  case "folders":
+                    return musicLibrary.rootDirectory().then(directoryContents);
+                  case "folder":
+                    return musicLibrary.directory(typeId!).then(directoryContents);
                   default:
                     logger.info(`Sonos asked for an unsupported getMetadata: ${type}:${typeId}`);
                     return getMetadataResult({

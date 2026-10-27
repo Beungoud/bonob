@@ -303,6 +303,32 @@ const getAlbumListJson = (albums: [Artist, AlbumSummary][]) =>
     },
   });
 
+const asEntryJson = (it: Track) => ({
+    id: it.id,
+    parent: "...",
+    isDir: false,
+    title: it.name,
+    album: it.album.name,
+    artist: it.artist.name,
+    track: it.number,
+    year: it.album.year,
+    genre: it.album.genre?.name,
+    coverArt: maybeIdFromCoverArtUrn(it.coverArt),
+    size: 123,
+    contentType: it.encoding.mimeType,
+    suffix: "mp3",
+    duration: it.duration,
+    bitRate: 128,
+    path: "...",
+    discNumber: 1,
+    created: "2019-09-04T04:07:00.138169924Z",
+    albumId: it.album.id,
+    artistId: it.artist.id,
+    type: "music",
+    isVideo: false,
+    userRating: it.rating.stars,
+});
+
 const getPlayListJson = (playlist: Playlist) =>
   subsonicOK({
     playlist: {
@@ -314,31 +340,7 @@ const getPlayListJson = (playlist: Playlist) =>
       owner: "bob",
       created: "2021-05-06T02:07:30.460465988Z",
       changed: "2021-05-06T02:40:04Z",
-      entry: playlist.entries.map((it) => ({
-        id: it.id,
-        parent: "...",
-        isDir: false,
-        title: it.name,
-        album: it.album.name,
-        artist: it.artist.name,
-        track: it.number,
-        year: it.album.year,
-        genre: it.album.genre?.name,
-        coverArt: maybeIdFromCoverArtUrn(it.coverArt),
-        size: 123,
-        contentType: it.encoding.mimeType,
-        suffix: "mp3",
-        duration: it.duration,
-        bitRate: 128,
-        path: "...",
-        discNumber: 1,
-        created: "2019-09-04T04:07:00.138169924Z",
-        albumId: it.album.id,
-        artistId: it.artist.id,
-        type: "music",
-        isVideo: false,
-        userRating: it.rating.stars,
-      })),
+      entry: playlist.entries.map(asEntryJson),
     },
   });
 
@@ -3682,6 +3684,130 @@ describe("SubsonicMusicLibrary", () => {
             headers,
           }
         );
+      });
+    });
+  });
+
+  describe("folders", () => {
+    const artist = anArtist();
+    const album = anAlbum({ artistId: artist.id, artistName: artist.name, genre: POP });
+    const aTrackOnAlbum = () =>
+      aTrack({
+        genre: POP,
+        coverArt: album.coverArt,
+        artist: artistToArtistSummary(artist),
+        album: albumToAlbumSummary(album),
+      });
+
+    beforeEach(() => {
+      customPlayers.encodingFor.mockReturnValue(O.none);
+    });
+
+    describe("getting the top level folders", () => {
+      it("should return the indexed folders and the loose tracks", async () => {
+        const track = aTrackOnAlbum();
+
+        mockGET.mockImplementationOnce(() =>
+          Promise.resolve(
+            ok(
+              subsonicOK({
+                indexes: {
+                  ignoredArticles: "The",
+                  index: [
+                    { name: "J", artist: [{ id: "d1", name: "Jazz" }] },
+                    { name: "R", artist: [{ id: "d2", name: "Rock", coverArt: "c2" }] },
+                  ],
+                  child: [asEntryJson(track)],
+                },
+              })
+            )
+          )
+        );
+
+        const result = await subsonic.rootDirectory();
+
+        expect(result).toEqual({
+          directories: [
+            { id: "d1", name: "Jazz", coverArt: undefined },
+            { id: "d2", name: "Rock", coverArt: { source: "subsonic", id: "c2" } },
+          ],
+          tracks: [track],
+        });
+        expect(mockGET).toHaveBeenCalledWith(
+          url.append({ pathname: "/rest/getIndexes" }).href(),
+          { params: asURLSearchParams(authParamsPlusJson), headers }
+        );
+      });
+
+      it("should cope with an empty library", async () => {
+        mockGET.mockImplementationOnce(() =>
+          Promise.resolve(ok(subsonicOK({ indexes: { ignoredArticles: "The" } })))
+        );
+
+        expect(await subsonic.rootDirectory()).toEqual({ directories: [], tracks: [] });
+      });
+    });
+
+    describe("getting a folder", () => {
+      it("should split the sub folders from the tracks, ignoring videos", async () => {
+        const id = uuid();
+        const track1 = aTrackOnAlbum();
+        const track2 = aTrackOnAlbum();
+        const video = { ...asEntryJson(aTrackOnAlbum()), isVideo: true };
+
+        mockGET.mockImplementationOnce(() =>
+          Promise.resolve(
+            ok(
+              subsonicOK({
+                directory: {
+                  id,
+                  name: "Some album",
+                  child: [
+                    { id: "cd1", parent: id, isDir: true, title: "CD1", coverArt: "cover1" },
+                    { id: "cd2", parent: id, isDir: "true", title: "CD2" },
+                    asEntryJson(track1),
+                    video,
+                    asEntryJson(track2),
+                  ],
+                },
+              })
+            )
+          )
+        );
+
+        const result = await subsonic.directory(id);
+
+        expect(result).toEqual({
+          directories: [
+            { id: "cd1", name: "CD1", coverArt: { source: "subsonic", id: "cover1" } },
+            { id: "cd2", name: "CD2", coverArt: undefined },
+          ],
+          tracks: [track1, track2],
+        });
+        expect(mockGET).toHaveBeenCalledWith(
+          url.append({ pathname: "/rest/getMusicDirectory" }).href(),
+          { params: asURLSearchParams({ ...authParamsPlusJson, id }), headers }
+        );
+      });
+
+      it("should use the folder as the album of untagged files", async () => {
+        const id = uuid();
+        const track = aTrackOnAlbum();
+        const { album: _album, albumId: _albumId, ...untagged } = asEntryJson(track);
+
+        mockGET.mockImplementationOnce(() =>
+          Promise.resolve(
+            ok(
+              subsonicOK({
+                directory: { id, name: "Bootlegs", child: [{ ...untagged, parent: id }] },
+              })
+            )
+          )
+        );
+
+        const result = await subsonic.directory(id);
+
+        expect(result.tracks.map((it) => [it.album.id, it.album.name])).toEqual([[id, "Bootlegs"]]);
       });
     });
   });

@@ -246,6 +246,48 @@ export type GetSongResponse = {
   readonly song: OpenSubsonicSong;
 };
 
+// An entry of a music directory, either a sub directory or a song.
+// For directories, 'title' holds the directory name.
+export type SubsonicDirectoryChild = OpenSubsonicSong & {
+  // some servers send these as strings
+  readonly isDir: boolean | string;
+  readonly isVideo?: boolean | string | undefined;
+};
+
+export const isDirectory = (child: SubsonicDirectoryChild) =>
+  child.isDir === true || child.isDir === "true";
+
+export const isVideo = (child: SubsonicDirectoryChild) =>
+  child.isVideo === true || child.isVideo === "true";
+
+export type GetIndexesResponse = SubsonicResponse & {
+  readonly indexes: {
+    readonly index?: readonly {
+      readonly name: string;
+      readonly artist?: readonly {
+        readonly id: string;
+        readonly name: string;
+        readonly coverArt?: string | undefined;
+      }[];
+    }[];
+    // songs sitting directly in the root of the music folder
+    readonly child?: readonly SubsonicDirectoryChild[];
+  };
+};
+
+export type GetIndexes = GetIndexesResponse["indexes"];
+
+export type GetMusicDirectoryResponse = SubsonicResponse & {
+  readonly directory: {
+    readonly id: string;
+    readonly name: string;
+    readonly parent?: string | undefined;
+    readonly child?: readonly SubsonicDirectoryChild[];
+  };
+};
+
+export type GetMusicDirectory = GetMusicDirectoryResponse["directory"];
+
 export type GetStarredResponse = {
   readonly starred2: {
     // Subsonic servers can omit these entirely when there are no starred
@@ -1153,6 +1195,16 @@ export class Subsonic {
         { artist, count: 50 }
       )
       .then((it) => it.topSongs.song || []);
+
+  readonly getIndexes = (credentials: Credentials): Promise<GetIndexes> =>
+    this.getJSON<GetIndexesResponse>(credentials, "/rest/getIndexes").then(
+      (it) => it.indexes || {}
+    );
+
+  readonly getMusicDirectory = (credentials: Credentials, id: string): Promise<GetMusicDirectory> =>
+    this.getJSON<GetMusicDirectoryResponse>(credentials, "/rest/getMusicDirectory", {
+      id,
+    }).then((it) => it.directory);
 
   readonly getInternetRadioStations = (credentials: Credentials) =>
     this.getJSON<GetInternetRadioStationsResponse>(

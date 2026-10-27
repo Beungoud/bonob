@@ -176,6 +176,7 @@ export type ICON =
   | "albums"
   | "radio"
   | "playlists"
+  | "folder"
   | "genres"
   | "random"
   | "topRated"
@@ -273,6 +274,7 @@ export const ICONS: Record<ICON, SvgIcon> = {
   radio: iconFrom("navidrome-radio.svg"),
   blank: svgFrom("blank.svg"),
   playlists: iconFrom("navidrome-playlists.svg"),
+  folder: iconFrom("folder.svg"),
   genres: iconFrom("Theatre-Mask-111172.svg"),
   random: iconFrom("navidrome-random.svg"),
   topRated: iconFrom("navidrome-topRated.svg"),

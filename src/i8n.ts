@@ -11,6 +11,7 @@ export type KEY =
   | "albums"
   | "internetRadio"  
   | "playlists"
+  | "folders"
   | "genres"
   | "random"
   | "topRated"
@@ -61,6 +62,7 @@ const translations: Record<SUPPORTED_LANG, Record<KEY, string>> = {
     internetRadio: "Internet Radio",
     tracks: "Tracks",
     playlists: "Playlists",
+    folders: "Folders",
     genres: "Genres",
     random: "Random",
     topRated: "Top Rated",
@@ -109,6 +111,7 @@ const translations: Record<SUPPORTED_LANG, Record<KEY, string>> = {
     internetRadio: "Internet Radio",
     tracks: "Numre",
     playlists: "Afspilningslister",
+    folders: "Mapper",
     genres: "Genre",
     random: "Tilfældig",
     topRated: "Højst vurderet",
@@ -157,6 +160,7 @@ const translations: Record<SUPPORTED_LANG, Record<KEY, string>> = {
     internetRadio: "Radio Internet",
     tracks: "Pistes",
     playlists: "Playlists",
+    folders: "Dossiers",
     genres: "Genres",
     random: "Aléatoire",
     topRated: "Les mieux notés",
@@ -205,6 +209,7 @@ const translations: Record<SUPPORTED_LANG, Record<KEY, string>> = {
     internetRadio: "Internet Radio",
     tracks: "Nummers",
     playlists: "Afspeellijsten",
+    folders: "Mappen",
     genres: "Genres",
     random: "Willekeurig",
     topRated: "Best beoordeeld",

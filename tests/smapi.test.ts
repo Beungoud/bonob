@@ -18,6 +18,8 @@ import {
   track,
   artist,
   album,
+  folder,
+  tracksWithin,
   coverArtURI,
   searchResult,
   iconArtURI,
@@ -658,6 +660,34 @@ describe("scrollIndicesFrom", () => {
   });
 });
 
+describe("tracksWithin", () => {
+  const sub1 = { id: "sub1", name: "sub1", coverArt: undefined };
+  const sub2 = { id: "sub2", name: "sub2", coverArt: undefined };
+  const [t1, t2, t3, t4] = [aTrack(), aTrack(), aTrack(), aTrack()];
+  const library = {
+    directory: jest.fn((id: string) =>
+      Promise.resolve(
+        id === "sub1"
+          ? { directories: [], tracks: [t2, t3] }
+          : { directories: [], tracks: [t4] }
+      )
+    ),
+  };
+
+  beforeEach(() => library.directory.mockClear());
+
+  it("should return the tracks depth first", async () => {
+    const result = await tracksWithin(library, { directories: [sub1, sub2], tracks: [t1] });
+    expect(result).toEqual([t1, t2, t3, t4]);
+  });
+
+  it("should stop walking once the limit is reached", async () => {
+    const result = await tracksWithin(library, { directories: [sub1, sub2], tracks: [t1] }, 2);
+    expect(result).toEqual([t1, t2]);
+    expect(library.directory).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("wsdl api", () => {
   const musicService = {
     generateToken: jest.fn(),
@@ -694,6 +724,8 @@ describe("wsdl api", () => {
     rate: jest.fn(),
     radioStation: jest.fn(),
     radioStations: jest.fn(),
+    rootDirectory: jest.fn(),
+    directory: jest.fn(),
   };
   const apiTokens = {
     mint: jest.fn(),
@@ -1286,6 +1318,12 @@ describe("wsdl api", () => {
                       canScroll: true,
                     },
                     {
+                      id: "folders",
+                      title: "Folders",
+                      albumArtURI: iconArtURI(bonobUrl, "folder"),
+                      itemType: "container",
+                    },
+                    {
                       id: "randomAlbums",
                       title: "Random",
                       albumArtURI: iconArtURI(bonobUrl, "random"),
@@ -1383,6 +1421,12 @@ describe("wsdl api", () => {
                       albumArtURI: iconArtURI(bonobUrl, "albums"),
                       itemType: "albumList",
                       canScroll: true,
+                    },
+                    {
+                      id: "folders",
+                      title: "Mappen",
+                      albumArtURI: iconArtURI(bonobUrl, "folder"),
+                      itemType: "container",
                     },
                     {
                       id: "randomAlbums",
@@ -2670,6 +2714,175 @@ describe("wsdl api", () => {
                   expect(musicLibrary.playlist).toHaveBeenCalledWith(
                     playlist.id
                   );
+                });
+              });
+            });
+
+            describe("asking for folders", () => {
+              // the soap client parses a single mediaCollection/mediaMetadata as an object rather than an array
+              const normalised = (result: any) => {
+                const it = result.getMetadataResult;
+                return {
+                  getMetadataResult: {
+                    ...it,
+                    ...(it.mediaCollection ? { mediaCollection: [it.mediaCollection].flat() } : {}),
+                    ...(it.mediaMetadata ? { mediaMetadata: [it.mediaMetadata].flat() } : {}),
+                  },
+                };
+              };
+              const folderWithoutArt = { id: uuid(), name: "Jazz", coverArt: undefined };
+              const folderWithArt = {
+                id: uuid(),
+                name: "Rock",
+                coverArt: { source: "subsonic", id: uuid() },
+              };
+              const track1 = aTrack();
+              const track2 = aTrack();
+
+              describe("asking for the top level folders", () => {
+                beforeEach(() => {
+                  musicLibrary.rootDirectory.mockResolvedValue({
+                    directories: [folderWithoutArt, folderWithArt],
+                    tracks: [track1],
+                  });
+                });
+
+                it("should return the folders followed by the tracks", async () => {
+                  const result = await ws.getMetadataAsync({
+                    id: "folders",
+                    index: 0,
+                    count: 100,
+                  });
+
+                  expect(normalised(result[0])).toEqual(
+                    getMetadataResult({
+                      mediaCollection: [
+                        {
+                          id: `folder:${folderWithoutArt.id}`,
+                          itemType: "container",
+                          title: "Jazz",
+                          canPlay: true,
+                          albumArtURI: iconArtURI(bonobUrl, "folder"),
+                        },
+                        {
+                          id: `folder:${folderWithArt.id}`,
+                          itemType: "container",
+                          title: "Rock",
+                          canPlay: true,
+                          albumArtURI: coverArtURI(bonobUrl, apiToken, folderWithArt),
+                        },
+                      ],
+                      mediaMetadata: [track(bonobUrl, apiToken, track1)],
+                      index: 0,
+                      total: 3,
+                    })
+                  );
+                  expect(musicLibrary.rootDirectory).toHaveBeenCalled();
+                });
+              });
+
+              describe("asking for a folder", () => {
+                beforeEach(() => {
+                  musicLibrary.directory.mockResolvedValue({
+                    directories: [folderWithoutArt, folderWithArt],
+                    tracks: [track1, track2],
+                  });
+                });
+
+                it("should ask the library for that folder", async () => {
+                  const id = uuid();
+                  const result = await ws.getMetadataAsync({
+                    id: `folder:${id}`,
+                    index: 0,
+                    count: 100,
+                  });
+
+                  expect(normalised(result[0])).toEqual(
+                    getMetadataResult({
+                      mediaCollection: [
+                        folder(bonobUrl, apiToken, folderWithoutArt),
+                        folder(bonobUrl, apiToken, folderWithArt),
+                      ],
+                      mediaMetadata: [
+                        track(bonobUrl, apiToken, track1),
+                        track(bonobUrl, apiToken, track2),
+                      ],
+                      index: 0,
+                      total: 4,
+                    })
+                  );
+                  expect(musicLibrary.directory).toHaveBeenCalledWith(id);
+                });
+
+                it("should page over the folders and tracks as one list", async () => {
+                  const result = await ws.getMetadataAsync({
+                    id: `folder:${uuid()}`,
+                    index: 1,
+                    count: 2,
+                  });
+
+                  expect(normalised(result[0])).toEqual(
+                    getMetadataResult({
+                      mediaCollection: [folder(bonobUrl, apiToken, folderWithArt)],
+                      mediaMetadata: [track(bonobUrl, apiToken, track1)],
+                      index: 1,
+                      total: 4,
+                    })
+                  );
+                });
+
+                it("should return only tracks when the page has no folders", async () => {
+                  const result = await ws.getMetadataAsync({
+                    id: `folder:${uuid()}`,
+                    index: 2,
+                    count: 2,
+                  });
+
+                  expect(normalised(result[0])).toEqual(
+                    getMetadataResult({
+                      mediaMetadata: [
+                        track(bonobUrl, apiToken, track1),
+                        track(bonobUrl, apiToken, track2),
+                      ],
+                      index: 2,
+                      total: 4,
+                    })
+                  );
+                });
+              });
+
+              describe("playing a folder (recursive)", () => {
+                const subFolder = { id: uuid(), name: "CD2", coverArt: undefined };
+                const track3 = aTrack();
+
+                beforeEach(() => {
+                  musicLibrary.directory.mockImplementation((id: string) =>
+                    Promise.resolve(
+                      id === subFolder.id
+                        ? { directories: [], tracks: [track2, track3] }
+                        : { directories: [subFolder], tracks: [track1] }
+                    )
+                  );
+                });
+
+                it("should return the tracks of the folder and its sub folders", async () => {
+                  const result = await ws.getMetadataAsync({
+                    id: `folder:${uuid()}`,
+                    index: 0,
+                    count: 100,
+                    recursive: true,
+                  });
+
+                  expect(normalised(result[0])).toEqual(
+                    getMetadataResult({
+                      mediaMetadata: [track1, track2, track3].map((it) =>
+                        track(bonobUrl, apiToken, it)
+                      ),
+                      index: 0,
+                      total: 3,
+                    })
+                  );
+                  expect(musicLibrary.directory).toHaveBeenCalledWith(subFolder.id);
                 });
               });
             });
