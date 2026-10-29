@@ -252,7 +252,6 @@ export type SubsonicDirectoryChild = OpenSubsonicSong & {
   // some servers send these as strings
   readonly isDir: boolean | string;
   readonly isVideo?: boolean | string | undefined;
-  readonly path?: string | undefined;
 };
 
 export const isDirectory = (child: SubsonicDirectoryChild) =>
@@ -260,16 +259,6 @@ export const isDirectory = (child: SubsonicDirectoryChild) =>
 
 export const isVideo = (child: SubsonicDirectoryChild) =>
   child.isVideo === true || child.isVideo === "true";
-
-// Hidden folders, and the ones a NAS adds next to the music
-// (eg. Synology's @eaDir thumbnails, #recycle bin and #snapshot).
-const HIDDEN_FOLDER = /^(\.|@eaDir$|#recycle$|#snapshot$)/i;
-
-export const isHiddenFolder = (name: string) => HIDDEN_FOLDER.test(name);
-
-// Hidden files, eg. macOS "._" resource forks; only known when the server sends the path.
-export const isHiddenFile = (child: SubsonicDirectoryChild) =>
-  (child.path?.split("/").pop() || "").startsWith(".");
 
 export type GetIndexesResponse = SubsonicResponse & {
   readonly indexes: {

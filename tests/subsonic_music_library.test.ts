@@ -304,29 +304,29 @@ const getAlbumListJson = (albums: [Artist, AlbumSummary][]) =>
   });
 
 const asEntryJson = (it: Track) => ({
-  id: it.id,
-  parent: "...",
-  isDir: false,
-  title: it.name,
-  album: it.album.name,
-  artist: it.artist.name,
-  track: it.number,
-  year: it.album.year,
-  genre: it.album.genre?.name,
-  coverArt: maybeIdFromCoverArtUrn(it.coverArt),
-  size: 123,
-  contentType: it.encoding.mimeType,
-  suffix: "mp3",
-  duration: it.duration,
-  bitRate: 128,
-  path: "Artist/Album/Song.mp3",
-  discNumber: 1,
-  created: "2019-09-04T04:07:00.138169924Z",
-  albumId: it.album.id,
-  artistId: it.artist.id,
-  type: "music",
-  isVideo: false,
-  userRating: it.rating.stars,
+    id: it.id,
+    parent: "...",
+    isDir: false,
+    title: it.name,
+    album: it.album.name,
+    artist: it.artist.name,
+    track: it.number,
+    year: it.album.year,
+    genre: it.album.genre?.name,
+    coverArt: maybeIdFromCoverArtUrn(it.coverArt),
+    size: 123,
+    contentType: it.encoding.mimeType,
+    suffix: "mp3",
+    duration: it.duration,
+    bitRate: 128,
+    path: "...",
+    discNumber: 1,
+    created: "2019-09-04T04:07:00.138169924Z",
+    albumId: it.album.id,
+    artistId: it.artist.id,
+    type: "music",
+    isVideo: false,
+    userRating: it.rating.stars,
 });
 
 const getPlayListJson = (playlist: Playlist) =>
@@ -3739,28 +3739,6 @@ describe("SubsonicMusicLibrary", () => {
         );
       });
 
-      it("should leave out hidden and NAS system folders", async () => {
-        mockGET.mockImplementationOnce(() =>
-          Promise.resolve(
-            ok(
-              subsonicOK({
-                indexes: {
-                  index: [
-                    { name: "#", artist: [{ id: "h1", name: "#recycle" }, { id: "h2", name: ".Trash" }] },
-                    { name: "@", artist: [{ id: "h3", name: "@eaDir" }] },
-                    { name: "J", artist: [{ id: "d1", name: "Jazz" }] },
-                  ],
-                },
-              })
-            )
-          )
-        );
-
-        const result = await subsonic.rootDirectory();
-
-        expect(result.directories).toEqual([{ id: "d1", name: "Jazz", coverArt: undefined }]);
-      });
-
       it("should cope with an empty library", async () => {
         mockGET.mockImplementationOnce(() =>
           Promise.resolve(ok(subsonicOK({ indexes: { ignoredArticles: "The" } })))
@@ -3810,40 +3788,6 @@ describe("SubsonicMusicLibrary", () => {
           url.append({ pathname: "/rest/getMusicDirectory" }).href(),
           { params: asURLSearchParams({ ...authParamsPlusJson, id }), headers }
         );
-      });
-
-      it("should leave out hidden and NAS system folders and hidden files", async () => {
-        const id = uuid();
-        const track = aTrackOnAlbum();
-        const resourceFork = { ...asEntryJson(aTrackOnAlbum()), path: "Artist/Album/._01 - Song.mp3" };
-
-        mockGET.mockImplementationOnce(() =>
-          Promise.resolve(
-            ok(
-              subsonicOK({
-                directory: {
-                  id,
-                  name: "Album",
-                  child: [
-                    { id: "h1", parent: id, isDir: true, title: ".hidden" },
-                    { id: "h2", parent: id, isDir: true, title: "@eaDir" },
-                    { id: "h3", parent: id, isDir: true, title: "#recycle" },
-                    { id: "h4", parent: id, isDir: true, title: "#snapshot" },
-                    { id: "k1", parent: id, isDir: true, title: "@Live" },
-                    { id: "k2", parent: id, isDir: true, title: "Scans" },
-                    { ...asEntryJson(track), path: "Artist/Album/01 - Song.mp3" },
-                    resourceFork,
-                  ],
-                },
-              })
-            )
-          )
-        );
-
-        const result = await subsonic.directory(id);
-
-        expect(result.directories.map((it) => it.name)).toEqual(["@Live", "Scans"]);
-        expect(result.tracks).toEqual([track]);
       });
 
       it("should use the folder as the album of untagged files", async () => {
