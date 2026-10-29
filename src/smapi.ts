@@ -897,13 +897,16 @@ function bindSmapiSoapServiceToExpress(
                         })
                       );
                   }
-                  // folders first, then the tracks, paged as a single list
+                  // Tracks first, then the sub folders, paged as a single list.
+                  // When a track is picked, Sonos queues the whole folder (recursive=true,
+                  // which only has tracks) and starts at the track's position in this list,
+                  // so listing folders first would start playback on the wrong track.
                   const [page, total] = slice2<
                     | { readonly mediaCollection: ReturnType<typeof folder> }
                     | { readonly mediaMetadata: ReturnType<typeof track> }
                   >(paging)([
-                    ...directory.directories.map((it) => ({ mediaCollection: folder(bonobUrl, apiKey, it) })),
                     ...directory.tracks.map((it) => ({ mediaMetadata: track(bonobUrl, apiKey, it) })),
+                    ...directory.directories.map((it) => ({ mediaCollection: folder(bonobUrl, apiKey, it) })),
                   ]);
                   const mediaCollection = page.flatMap((it) => ("mediaCollection" in it ? [it.mediaCollection] : []));
                   const mediaMetadata = page.flatMap((it) => ("mediaMetadata" in it ? [it.mediaMetadata] : []));

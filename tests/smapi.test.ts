@@ -2769,7 +2769,7 @@ describe("wsdl api", () => {
                   });
                 });
 
-                it("should return the folders followed by the tracks", async () => {
+                it("should return the tracks followed by the folders", async () => {
                   const result = await ws.getMetadataAsync({
                     id: "folders",
                     index: 0,
@@ -2836,7 +2836,7 @@ describe("wsdl api", () => {
                   expect(musicLibrary.directory).toHaveBeenCalledWith(id);
                 });
 
-                it("should page over the folders and tracks as one list", async () => {
+                it("should page over the tracks and folders as one list", async () => {
                   const result = await ws.getMetadataAsync({
                     id: `folder:${uuid()}`,
                     index: 1,
@@ -2845,15 +2845,15 @@ describe("wsdl api", () => {
 
                   expect(normalised(result[0])).toEqual(
                     getMetadataResult({
-                      mediaCollection: [folder(bonobUrl, apiToken, folderWithArt)],
-                      mediaMetadata: [track(bonobUrl, apiToken, track1)],
+                      mediaCollection: [folder(bonobUrl, apiToken, folderWithoutArt)],
+                      mediaMetadata: [track(bonobUrl, apiToken, track2)],
                       index: 1,
                       total: 4,
                     })
                   );
                 });
 
-                it("should return only tracks when the page has no folders", async () => {
+                it("should return only folders when the page has no tracks", async () => {
                   const result = await ws.getMetadataAsync({
                     id: `folder:${uuid()}`,
                     index: 2,
@@ -2862,14 +2862,29 @@ describe("wsdl api", () => {
 
                   expect(normalised(result[0])).toEqual(
                     getMetadataResult({
-                      mediaMetadata: [
-                        track(bonobUrl, apiToken, track1),
-                        track(bonobUrl, apiToken, track2),
+                      mediaCollection: [
+                        folder(bonobUrl, apiToken, folderWithoutArt),
+                        folder(bonobUrl, apiToken, folderWithArt),
                       ],
                       index: 2,
                       total: 4,
                     })
                   );
+                });
+
+                it("should give each track the same position as in the queue Sonos builds when playing the folder", async () => {
+                  const listed = await ws.getMetadataAsync({ id: `folder:${uuid()}`, index: 0, count: 100 });
+                  const queued = await ws.getMetadataAsync({ id: `folder:${uuid()}`, index: 0, count: 100, recursive: true });
+
+                  const listedTrackIds = [normalised(listed[0]).getMetadataResult.mediaMetadata]
+                    .flat()
+                    .map((it: any) => it.id);
+                  const queuedTrackIds = [normalised(queued[0]).getMetadataResult.mediaMetadata]
+                    .flat()
+                    .map((it: any) => it.id);
+
+                  // tracks are listed before the folders, at the same indices as in the queue
+                  expect(listedTrackIds).toEqual(queuedTrackIds.slice(0, listedTrackIds.length));
                 });
               });
 
