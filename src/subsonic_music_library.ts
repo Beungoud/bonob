@@ -42,6 +42,8 @@ import {
   SubsonicDirectoryChild,
   isDirectory,
   isVideo,
+  isHiddenFolder,
+  isHiddenFile,
 } from "./subsonic";
 
 const starredSongIds = (starred: { readonly song?: readonly { readonly id: string }[] }) =>
@@ -567,7 +569,7 @@ export class SubsonicMusicLibrary implements MusicLibrary {
       this.subsonic.getStarred(this.credentials),
     ]).then(([indexes, starred]) => ({
       directories: (indexes.index || []).flatMap((index) =>
-        (index.artist || []).map((it) => ({
+        (index.artist || []).filter((it) => !isHiddenFolder(it.name)).map((it) => ({
           id: it.id,
           name: it.name,
           coverArt: coverArtToArt(it.coverArt),
@@ -583,11 +585,13 @@ export class SubsonicMusicLibrary implements MusicLibrary {
     ]).then(([directory, starred]) => {
       const children = directory.child || [];
       return {
-        directories: children.filter(isDirectory).map((it) => ({
-          id: it.id,
-          name: it.title,
-          coverArt: coverArtToArt(it.coverArt),
-        })),
+        directories: children
+          .filter((it) => isDirectory(it) && !isHiddenFolder(it.title))
+          .map((it) => ({
+            id: it.id,
+            name: it.title,
+            coverArt: coverArtToArt(it.coverArt),
+          })),
         tracks: this.directoryTracks(children, starredSongIds(starred), directory),
       };
     });
@@ -598,7 +602,7 @@ export class SubsonicMusicLibrary implements MusicLibrary {
     parent: { readonly id: string; readonly name: string } | undefined = undefined
   ) =>
     children
-      .filter((it) => !isDirectory(it) && !isVideo(it))
+      .filter((it) => !isDirectory(it) && !isVideo(it) && !isHiddenFile(it))
       .map((song) =>
         asTrack(
           {
